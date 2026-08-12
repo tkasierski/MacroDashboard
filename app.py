@@ -9,12 +9,14 @@ from src.macro_dashboard.analytics import build_coverage_report, build_feature_p
 from src.macro_dashboard.pipeline import build_weekly_dataset
 
 ROOT = Path(__file__).resolve().parent
+CONFIG_PATH = ROOT / "config" / "indicators.json"
 
 st.set_page_config(page_title="MacroDashboard", page_icon="📈", layout="wide")
 
 
 @st.cache_data(ttl=3600, show_spinner="Refreshing macro data...")
-def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, dict]]:
+def load_data(config_version: int) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, dict]]:
+    del config_version
     weekly, specs = build_weekly_dataset()
     features = build_feature_panel(weekly, specs)
     coverage = build_coverage_report(weekly, specs)
@@ -50,6 +52,8 @@ def format_value(value: float, spec: dict) -> str:
     unit = spec.get("unit", "")
     if unit == "%":
         return f"{value:,.{decimals}f}%"
+    if unit in {"claims", "passengers"}:
+        return f"{value:,.0f}"
     return f"{value:,.{decimals}f}"
 
 
@@ -58,17 +62,26 @@ def format_change(value: float | None, spec: dict) -> str:
         return "—"
     value = float(value)
     change_format = spec.get("change_format", "raw")
+    unit = spec.get("unit", "")
     if change_format == "bp":
         return f"{value * 100:+.0f} bp"
     if change_format == "pp":
         return f"{value:+.2f} pp"
-    if change_format == "count":
-        return f"{value:+,.0f}"
-    if change_format == "passengers":
-        return f"{value:+,.0f} passengers"
+    if change_format in {"integer", "count", "passengers"}:
+        suffix = f" {unit}" if unit else ""
+        return f"{value:+,.0f}{suffix}"
     if change_format == "index":
         return f"{value:+.2f} index pts"
     return f"{value:+,.2f}"
+
+
+def direction_hint(spec: dict) -> str:
+    direction = int(spec.get("stress_direction", 0))
+    if direction > 0:
+        return "Higher generally means more macro stress."
+    if direction < 0:
+        return "Lower generally means more macro stress."
+    return "Use mainly as regime context rather than a simple good/bad signal."
 
 
 def metric_card(series_id: str, features: pd.DataFrame, specs: dict[str, dict]) -> None:
@@ -84,10 +97,13 @@ def metric_card(series_id: str, features: pd.DataFrame, specs: dict[str, dict]) 
     with st.container(border=True):
         st.metric(name, format_value(value, spec), f"3m {format_change(change_3m, spec)}")
         st.caption(f"{state_label(row)} · {pct:.0f}th historical percentile")
+        st.write(spec.get("description", ""))
+        st.caption(direction_hint(spec))
 
 
 try:
-    weekly, features, coverage, specs = load_data()
+    config_version = CONFIG_PATH.stat().st_mtime_ns
+    weekly, features, coverage, specs = load_data(config_version)
 except Exception as exc:
     st.error("Data refresh failed. Confirm FRED_API_KEY is available to the Streamlit process.")
     st.exception(exc)
@@ -106,7 +122,7 @@ with st.sidebar:
     selected_roles = st.multiselect("Roles", role_options, default=role_options)
     horizon = st.selectbox("Chart history", ["1 year", "3 years", "10 years", "Full history"], index=1)
     chart_mode = st.radio("Chart mode", ["Raw series", "Historical percentile"], horizontal=False)
-    st.caption("Changes shown in the app are changes in the underlying series, formatted in each series' natural units.")
+    st.caption("Changes are changes in the underlying series, shown in each indicator's natural units—not changes in percentile.")
     if st.button("Refresh data"):
         st.cache_data.clear()
         st.rerun()
@@ -115,7 +131,7 @@ headline = ["WEI", "NFCI", "ICSA", "IURSA", "T10Y3M", "TSA", "INDEED_JOB_POSTING
 headline = [sid for sid in headline if specs.get(sid, {}).get("role") in selected_roles]
 
 st.subheader("Current snapshot")
-st.caption("Each card shows the latest level, the absolute 3-month change in natural units, and the current historical percentile/state.")
+st.caption("Latest reading, 3-month change, historical position, and a short description of what each indicator actually measures.")
 for start in range(0, len(headline), 2):
     cols = st.columns(2)
     for col, sid in zip(cols, headline[start : start + 2]):
@@ -128,9 +144,14 @@ eligible = [sid for sid in weekly.columns if specs.get(sid, {}).get("role") in s
 selected = st.selectbox("Indicator", eligible, format_func=lambda sid: specs.get(sid, {}).get("name", sid))
 spec = specs[selected]
 
-st.markdown(f"**What it is:** {spec.get('description', 'No description available.')}  ")
-st.markdown(f"**How to read it:** {spec.get('interpretation', 'Interpret with the historical level and trajectory together.')}  ")
-st.caption(f"Producer: {spec.get('producer', spec.get('source_name', 'Unknown'))} · Caveat: {spec.get('caveat', 'Use as one input among several, not in isolation.')}")
+st.markdown(f"**What it measures:** {spec.get('description', 'Description not yet available.')}  ")
+st.markdown(f"**Why it matters / how to read it:** {spec.get('why_it_matters', direction_hint(spec))}  ")
+st.markdown(f"**Directional shorthand:** {direction_hint(spec)}")
+st.caption(
+    f"Producer: {spec.get('producer', spec.get('source_name', 'Unknown'))} · "
+    f"Unit: {spec.get('unit', 'not specified')} · "
+    f"Caveat: {spec.get('caveat', 'Use as one input among several, not in isolation.')}"
+)
 
 series_features = features[features["series_id"] == selected].copy().set_index("week_ending")
 if horizon != "Full history":
