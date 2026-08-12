@@ -1,0 +1,13 @@
+{
+  "sources": [
+    {"id": "FRED", "status": "active", "redistribution": "mixed", "notes": "Core FRED registry is operational; evaluate third-party series individually before public redistribution."},
+    {"id": "ADS", "status": "skipped", "redistribution": "public", "notes": "Philadelphia Fed workbook reachable but irregular layout defeated one parser attempt; revisit later."},
+    {"id": "TREASURY_WITHHOLDING", "status": "skipped", "redistribution": "public", "notes": "No clean documented Fiscal Data endpoint identified for the specific withheld Individual/FICA DTS line item."},
+    {"id": "PALI", "status": "skipped", "redistribution": "public", "notes": "Fannie Mae workbook reachable but internal layout did not match one parser attempt; revisit later."},
+    {"id": "TSA", "status": "testing", "redistribution": "public", "notes": "Official TSA passenger-volume table; one dependency fix applied after initial test."},
+    {"id": "INDEED_JOB_POSTINGS", "status": "testing", "redistribution": "attribution", "notes": "Official Hiring Lab GitHub CSV, CC BY 4.0, daily series refreshed weekly."},
+    {"id": "OPENTABLE", "status": "skipped", "redistribution": "attribution", "notes": "Official dashboard is current but data are dynamically rendered; no clean static download endpoint identified in one pass."},
+    {"id": "CREDIT_SPREAD", "status": "deferred", "redistribution": "restricted_or_mixed", "notes": "Clean long-history public-credit-spread source remains unresolved; avoid third-party redistribution ambiguity for V1."},
+    {"id": "SEMICONDUCTOR_RELATIVE_STRENGTH", "status": "deferred", "redistribution": "restricted_or_mixed", "notes": "Market-data redistribution/source choice deferred until market module."}
+  ]
+}
