@@ -43,8 +43,7 @@ def load_specs() -> tuple[dict, dict[str, dict]]:
 
 @st.cache_data(ttl=3600, show_spinner="Refreshing macro data...")
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, dict]]:
-    _, specs = load_specs()
-    weekly = build_weekly_dataset()
+    weekly, specs = build_weekly_dataset()
     features = build_feature_panel(weekly, specs)
     coverage = build_coverage_report(weekly, specs)
     return weekly, features, coverage, specs
