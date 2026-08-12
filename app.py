@@ -30,6 +30,18 @@ def latest_feature(features: pd.DataFrame, series_id: str) -> pd.Series | None:
     return frame.iloc[-1]
 
 
+def first_observation(features: pd.DataFrame, series_id: str) -> pd.Timestamp | None:
+    frame = features[(features["series_id"] == series_id) & features["value"].notna()]
+    if frame.empty:
+        return None
+    return pd.Timestamp(frame["week_ending"].min())
+
+
+def percentile_label(features: pd.DataFrame, series_id: str) -> str:
+    first = first_observation(features, series_id)
+    return "Full-history percentile" if first is None else f"Full-history percentile (since {first.year})"
+
+
 def state_label(row: pd.Series) -> str:
     direction = int(row.get("stress_direction", 0))
     if direction == 0:
@@ -75,13 +87,30 @@ def format_change(value: float | None, spec: dict) -> str:
     return f"{value:+,.2f}"
 
 
-def direction_hint(spec: dict) -> str:
+def direction_hint(series_id: str, spec: dict) -> str:
+    hints = {
+        "WEI": "Higher = stronger broad economic activity; sustained declines toward or below zero are the warning signal.",
+        "NFCI": "Above zero = tighter-than-average financial conditions; below zero = looser-than-average conditions.",
+        "ANFCI": "Higher = tighter conditions than the current economy would normally imply; lower = easier-than-expected conditions.",
+        "ICSA": "Higher and persistently rising claims = more layoffs and labor-market deterioration; lower/stable is healthier.",
+        "IURSA": "Higher = a larger share of covered workers remaining on unemployment insurance, generally a weaker labor signal.",
+        "CCSA": "Higher and rising = unemployed workers are taking longer to find jobs; falling claims generally indicate improvement.",
+        "T10Y3M": "More negative = greater yield-curve inversion and historically greater recession risk; positive = normally sloped curve.",
+        "T10Y2Y": "More negative = deeper curve inversion; re-steepening can reflect either improving expectations or late-cycle policy repricing.",
+        "STLFSI4": "Above zero = above-average financial stress; larger positive readings indicate increasingly unusual market strain.",
+        "DFII5": "Higher real yields tighten discount rates and financing conditions, but can also accompany stronger real growth expectations.",
+        "T5YIE": "Higher = more inflation compensation priced by markets; lower = less, though liquidity and risk premia also matter.",
+        "TSA": "Higher throughput = stronger travel/services activity; sustained weakness relative to history is the negative signal.",
+        "INDEED_JOB_POSTINGS": "Higher = stronger employer hiring demand; persistent declines indicate cooling labor demand.",
+    }
+    if series_id in hints:
+        return hints[series_id]
     direction = int(spec.get("stress_direction", 0))
     if direction > 0:
-        return "Higher generally means more macro stress."
+        return "Higher readings generally correspond to more macro stress."
     if direction < 0:
-        return "Lower generally means more macro stress."
-    return "Use mainly as regime context rather than a simple good/bad signal."
+        return "Lower readings generally correspond to more macro stress."
+    return "Interpret this mainly as regime context rather than a simple good/bad signal."
 
 
 def metric_card(series_id: str, features: pd.DataFrame, specs: dict[str, dict]) -> None:
@@ -96,9 +125,9 @@ def metric_card(series_id: str, features: pd.DataFrame, specs: dict[str, dict]) 
     change_3m = row.get("change_3m")
     with st.container(border=True):
         st.metric(name, format_value(value, spec), f"3m {format_change(change_3m, spec)}")
-        st.caption(f"{state_label(row)} · {pct:.0f}th historical percentile")
+        st.caption(f"{state_label(row)} · {pct:.0f}th {percentile_label(features, series_id).lower()}")
         st.write(spec.get("description", ""))
-        st.caption(direction_hint(spec))
+        st.caption(direction_hint(series_id, spec))
 
 
 try:
@@ -121,7 +150,8 @@ with st.sidebar:
     role_options = sorted({str(v.get("role", "")) for v in specs.values() if v.get("role")})
     selected_roles = st.multiselect("Roles", role_options, default=role_options)
     horizon = st.selectbox("Chart history", ["1 year", "3 years", "10 years", "Full history"], index=1)
-    chart_mode = st.radio("Chart mode", ["Raw series", "Historical percentile"], horizontal=False)
+    chart_mode = st.radio("Chart mode", ["Raw series", "Full-history percentile"], horizontal=False)
+    st.caption("Chart history only changes the visible time window. Percentiles are always calculated against each series' full available history.")
     st.caption("Changes are changes in the underlying series, shown in each indicator's natural units—not changes in percentile.")
     if st.button("Refresh data"):
         st.cache_data.clear()
@@ -131,7 +161,7 @@ headline = ["WEI", "NFCI", "ICSA", "IURSA", "T10Y3M", "TSA", "INDEED_JOB_POSTING
 headline = [sid for sid in headline if specs.get(sid, {}).get("role") in selected_roles]
 
 st.subheader("Current snapshot")
-st.caption("Latest reading, 3-month change, historical position, and a short description of what each indicator actually measures.")
+st.caption("Latest reading, 3-month change, full-history position, and a short description of what each indicator actually measures.")
 for start in range(0, len(headline), 2):
     cols = st.columns(2)
     for col, sid in zip(cols, headline[start : start + 2]):
@@ -145,15 +175,16 @@ selected = st.selectbox("Indicator", eligible, format_func=lambda sid: specs.get
 spec = specs[selected]
 
 st.markdown(f"**What it measures:** {spec.get('description', 'Description not yet available.')}  ")
-st.markdown(f"**Why it matters / how to read it:** {spec.get('why_it_matters', direction_hint(spec))}  ")
-st.markdown(f"**Directional shorthand:** {direction_hint(spec)}")
+st.markdown(f"**Why it matters / how to read it:** {spec.get('why_it_matters', direction_hint(selected, spec))}  ")
+st.markdown(f"**Directional shorthand:** {direction_hint(selected, spec)}")
 st.caption(
     f"Producer: {spec.get('producer', spec.get('source_name', 'Unknown'))} · "
     f"Unit: {spec.get('unit', 'not specified')} · "
     f"Caveat: {spec.get('caveat', 'Use as one input among several, not in isolation.')}"
 )
 
-series_features = features[features["series_id"] == selected].copy().set_index("week_ending")
+full_series_features = features[features["series_id"] == selected].copy().set_index("week_ending")
+series_features = full_series_features
 if horizon != "Full history":
     offsets = {"1 year": 52, "3 years": 156, "10 years": 520}
     series_features = series_features.tail(offsets[horizon])
@@ -161,13 +192,13 @@ if horizon != "Full history":
 if chart_mode == "Raw series":
     chart = series_features[["value"]].rename(columns={"value": spec["name"]})
 else:
-    chart = series_features[["percentile_full_history"]].rename(columns={"percentile_full_history": "Historical percentile"})
+    chart = series_features[["percentile_full_history"]].rename(columns={"percentile_full_history": percentile_label(features, selected)})
 st.line_chart(chart, height=360)
 
 current = latest_feature(features, selected)
 if current is not None:
     summary = [
-        ("Historical percentile", f"{float(current.get('percentile_full_history')):.0f}th"),
+        (percentile_label(features, selected), f"{float(current.get('percentile_full_history')):.0f}th"),
         ("1w change", format_change(current.get("change_1w"), spec)),
         ("3m change", format_change(current.get("change_3m"), spec)),
         ("6m change", format_change(current.get("change_6m"), spec)),
@@ -179,6 +210,10 @@ if current is not None:
             with col:
                 st.metric(label, value)
 
+st.caption(
+    "Percentile note: the current percentile and percentile chart are calculated using all available observations for this series. "
+    "The Chart history control only changes how much of that already-calculated series is displayed."
+)
 st.caption(
     f"Source: {spec.get('source_name', 'Unknown')} · Role: {spec.get('role', '')} · "
     f"Redistribution: {spec.get('redistribution', 'unknown')}"
