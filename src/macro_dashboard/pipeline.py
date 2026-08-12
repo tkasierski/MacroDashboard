@@ -47,6 +47,8 @@ def build_weekly_dataset() -> tuple[pd.DataFrame, dict[str, dict]]:
     weekly_frames.append(to_weekly(fetch_indeed_job_postings(), anchor, "last"))
 
     weekly = pd.concat(weekly_frames, axis=1).sort_index()
+    today = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()
+    weekly = weekly.loc[weekly.index <= today]
     weekly.index.name = "week_ending"
     return weekly, build_specs(config)
 
