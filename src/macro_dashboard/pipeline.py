@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .external import fetch_tsa
+from .external import fetch_indeed_job_postings, fetch_tsa
 from .fred import fetch_series, to_weekly
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -27,6 +27,7 @@ def build_weekly_dataset() -> pd.DataFrame:
         weekly_frames.append(to_weekly(raw, anchor, spec["aggregation"]))
 
     weekly_frames.append(to_weekly(fetch_tsa(), anchor, "mean"))
+    weekly_frames.append(to_weekly(fetch_indeed_job_postings(), anchor, "last"))
 
     weekly = pd.concat(weekly_frames, axis=1).sort_index()
     weekly.index.name = "week_ending"
