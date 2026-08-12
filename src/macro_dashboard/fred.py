@@ -9,10 +9,29 @@ import requests
 FRED_OBSERVATIONS_URL = "https://api.stlouisfed.org/fred/series/observations"
 
 
-def fetch_series(series_id: str) -> pd.DataFrame:
+def _get_fred_api_key() -> str:
     api_key = os.getenv("FRED_API_KEY")
+    if api_key:
+        return api_key
+
+    try:
+        import streamlit as st
+
+        api_key = st.secrets.get("FRED_API_KEY")
+    except Exception:
+        api_key = None
+
     if not api_key:
-        raise RuntimeError("FRED_API_KEY is not set")
+        raise RuntimeError(
+            "FRED_API_KEY is not set. Configure it as an environment variable "
+            "or as a Streamlit secret named FRED_API_KEY."
+        )
+
+    return str(api_key)
+
+
+def fetch_series(series_id: str) -> pd.DataFrame:
+    api_key = _get_fred_api_key()
 
     response = requests.get(
         FRED_OBSERVATIONS_URL,
