@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pandas as pd
@@ -10,35 +9,8 @@ from src.macro_dashboard.analytics import build_coverage_report, build_feature_p
 from src.macro_dashboard.pipeline import build_weekly_dataset
 
 ROOT = Path(__file__).resolve().parent
-CONFIG_PATH = ROOT / "config" / "indicators.json"
 
 st.set_page_config(page_title="MacroDashboard", page_icon="📈", layout="wide")
-
-
-def load_specs() -> tuple[dict, dict[str, dict]]:
-    config = json.loads(CONFIG_PATH.read_text())
-    specs = {spec["id"]: spec for spec in config["fred"]}
-    specs["TSA"] = {
-        "id": "TSA",
-        "name": "TSA Passenger Throughput",
-        "role": "core_direct",
-        "stress_direction": -1,
-        "source_name": "Transportation Security Administration",
-        "source_url": "https://www.tsa.gov/travel/passenger-volumes",
-        "redistribution": "public",
-        "download_allowed": True,
-    }
-    specs["INDEED_JOB_POSTINGS"] = {
-        "id": "INDEED_JOB_POSTINGS",
-        "name": "Indeed US Job Postings Index",
-        "role": "challenger_direct",
-        "stress_direction": -1,
-        "source_name": "Indeed Hiring Lab",
-        "source_url": "https://github.com/hiring-lab/job_postings_tracker",
-        "redistribution": "attribution",
-        "download_allowed": True,
-    }
-    return config, specs
 
 
 @st.cache_data(ttl=3600, show_spinner="Refreshing macro data...")
@@ -73,18 +45,45 @@ def state_label(row: pd.Series) -> str:
     return "Healthy / Improving"
 
 
+def format_value(value: float, spec: dict) -> str:
+    decimals = int(spec.get("value_decimals", 2))
+    unit = spec.get("unit", "")
+    if unit == "%":
+        return f"{value:,.{decimals}f}%"
+    return f"{value:,.{decimals}f}"
+
+
+def format_change(value: float | None, spec: dict) -> str:
+    if value is None or pd.isna(value):
+        return "—"
+    value = float(value)
+    change_format = spec.get("change_format", "raw")
+    if change_format == "bp":
+        return f"{value * 100:+.0f} bp"
+    if change_format == "pp":
+        return f"{value:+.2f} pp"
+    if change_format == "count":
+        return f"{value:+,.0f}"
+    if change_format == "passengers":
+        return f"{value:+,.0f} passengers"
+    if change_format == "index":
+        return f"{value:+.2f} index pts"
+    return f"{value:+,.2f}"
+
+
 def metric_card(series_id: str, features: pd.DataFrame, specs: dict[str, dict]) -> None:
     row = latest_feature(features, series_id)
     if row is None:
         st.warning(f"{series_id}: no current data")
         return
-    name = specs.get(series_id, {}).get("name", series_id)
+    spec = specs.get(series_id, {})
+    name = spec.get("name", series_id)
     value = float(row["value"])
     pct = float(row["percentile_full_history"])
     change_3m = row.get("change_3m")
-    delta = None if pd.isna(change_3m) else f"3m {float(change_3m):+.2f}"
-    st.metric(name, f"{value:,.2f}", delta)
-    st.caption(f"{state_label(row)} · {pct:.0f}th percentile")
+    with st.container(border=True):
+        st.metric(name, format_value(value, spec), f"3m {format_change(change_3m, spec)}")
+        st.caption(f"{state_label(row)} · {pct:.0f}th historical percentile")
 
 
 try:
@@ -99,14 +98,15 @@ st.caption("U.S. macro situational awareness · weekly normalization · source-f
 
 latest_week = weekly.dropna(how="all").index.max()
 active_series = int(weekly.notna().any().sum())
-st.write(f"Latest weekly anchor: **{latest_week.date()}** · Active series: **{active_series}**")
+st.write(f"Latest completed weekly anchor: **{latest_week.date()}** · Active series: **{active_series}**")
 
 with st.sidebar:
     st.header("View")
     role_options = sorted({str(v.get("role", "")) for v in specs.values() if v.get("role")})
     selected_roles = st.multiselect("Roles", role_options, default=role_options)
     horizon = st.selectbox("Chart history", ["1 year", "3 years", "10 years", "Full history"], index=1)
-    chart_mode = st.radio("Chart mode", ["Raw", "Percentile"], horizontal=True)
+    chart_mode = st.radio("Chart mode", ["Raw series", "Historical percentile"], horizontal=False)
+    st.caption("Changes shown in the app are changes in the underlying series, formatted in each series' natural units.")
     if st.button("Refresh data"):
         st.cache_data.clear()
         st.rerun()
@@ -115,9 +115,10 @@ headline = ["WEI", "NFCI", "ICSA", "IURSA", "T10Y3M", "TSA", "INDEED_JOB_POSTING
 headline = [sid for sid in headline if specs.get(sid, {}).get("role") in selected_roles]
 
 st.subheader("Current snapshot")
-for start in range(0, len(headline), 4):
-    cols = st.columns(4)
-    for col, sid in zip(cols, headline[start : start + 4]):
+st.caption("Each card shows the latest level, the absolute 3-month change in natural units, and the current historical percentile/state.")
+for start in range(0, len(headline), 2):
+    cols = st.columns(2)
+    for col, sid in zip(cols, headline[start : start + 2]):
         with col:
             metric_card(sid, features, specs)
 
@@ -125,33 +126,38 @@ st.divider()
 st.subheader("Indicator explorer")
 eligible = [sid for sid in weekly.columns if specs.get(sid, {}).get("role") in selected_roles]
 selected = st.selectbox("Indicator", eligible, format_func=lambda sid: specs.get(sid, {}).get("name", sid))
+spec = specs[selected]
+
+st.markdown(f"**What it is:** {spec.get('description', 'No description available.')}  ")
+st.markdown(f"**How to read it:** {spec.get('interpretation', 'Interpret with the historical level and trajectory together.')}  ")
+st.caption(f"Producer: {spec.get('producer', spec.get('source_name', 'Unknown'))} · Caveat: {spec.get('caveat', 'Use as one input among several, not in isolation.')}")
 
 series_features = features[features["series_id"] == selected].copy().set_index("week_ending")
 if horizon != "Full history":
     offsets = {"1 year": 52, "3 years": 156, "10 years": 520}
     series_features = series_features.tail(offsets[horizon])
 
-if chart_mode == "Raw":
-    chart = series_features[["value"]].rename(columns={"value": specs[selected]["name"]})
+if chart_mode == "Raw series":
+    chart = series_features[["value"]].rename(columns={"value": spec["name"]})
 else:
-    chart = series_features[["percentile_full_history"]].rename(columns={"percentile_full_history": "Percentile"})
-st.line_chart(chart, height=380)
+    chart = series_features[["percentile_full_history"]].rename(columns={"percentile_full_history": "Historical percentile"})
+st.line_chart(chart, height=360)
 
 current = latest_feature(features, selected)
 if current is not None:
-    c1, c2, c3, c4, c5 = st.columns(5)
-    values = [
-        ("Percentile", current.get("percentile_full_history")),
-        ("1w change", current.get("change_1w")),
-        ("3m change", current.get("change_3m")),
-        ("6m change", current.get("change_6m")),
-        ("12m change", current.get("change_12m")),
+    summary = [
+        ("Historical percentile", f"{float(current.get('percentile_full_history')):.0f}th"),
+        ("1w change", format_change(current.get("change_1w"), spec)),
+        ("3m change", format_change(current.get("change_3m"), spec)),
+        ("6m change", format_change(current.get("change_6m"), spec)),
+        ("12m change", format_change(current.get("change_12m"), spec)),
     ]
-    for col, (label, value) in zip([c1, c2, c3, c4, c5], values):
-        with col:
-            st.metric(label, "—" if pd.isna(value) else f"{float(value):,.2f}")
+    for start in range(0, len(summary), 3):
+        cols = st.columns(min(3, len(summary) - start))
+        for col, (label, value) in zip(cols, summary[start : start + 3]):
+            with col:
+                st.metric(label, value)
 
-spec = specs[selected]
 st.caption(
     f"Source: {spec.get('source_name', 'Unknown')} · Role: {spec.get('role', '')} · "
     f"Redistribution: {spec.get('redistribution', 'unknown')}"
@@ -166,25 +172,25 @@ if spec.get("download_allowed", False):
     )
 
 st.divider()
-st.subheader("Data coverage")
-coverage_view = coverage.copy()
-coverage_view["first_observation"] = pd.to_datetime(coverage_view["first_observation"]).dt.date
-coverage_view["latest_observation"] = pd.to_datetime(coverage_view["latest_observation"]).dt.date
-st.dataframe(
-    coverage_view[
-        [
-            "series_id",
-            "name",
-            "role",
-            "first_observation",
-            "latest_observation",
-            "observations",
-            "stale_days",
-            "redistribution",
-        ]
-    ],
-    use_container_width=True,
-    hide_index=True,
-)
+with st.expander("Data coverage and source diagnostics", expanded=False):
+    coverage_view = coverage.copy()
+    coverage_view["first_observation"] = pd.to_datetime(coverage_view["first_observation"]).dt.date
+    coverage_view["latest_observation"] = pd.to_datetime(coverage_view["latest_observation"]).dt.date
+    st.dataframe(
+        coverage_view[
+            [
+                "series_id",
+                "name",
+                "role",
+                "first_observation",
+                "latest_observation",
+                "observations",
+                "stale_days",
+                "redistribution",
+            ]
+        ],
+        use_container_width=True,
+        hide_index=True,
+    )
 
 st.caption("This dashboard is descriptive and directional, not a recession oracle or market-timing system.")
