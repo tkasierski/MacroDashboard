@@ -122,7 +122,7 @@ def fetch_indeed_job_postings() -> pd.DataFrame:
     if not required.issubset(frame.columns):
         raise ValueError("Indeed CSV schema changed")
 
-    frame = frame[frame["variable"].astype(str).str.lower().eq("total")].copy()
+    frame = frame[frame["variable"].astype(str).str.lower().eq("total postings")].copy()
     frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
     frame["value"] = pd.to_numeric(frame["indeed_job_postings_index_SA"], errors="coerce")
     frame = frame.dropna(subset=["date", "value"])
