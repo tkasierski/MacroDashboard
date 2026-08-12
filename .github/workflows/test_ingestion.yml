@@ -15,7 +15,9 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - name: Run FRED ingestion
+      - name: Validate Streamlit app syntax
+        run: python -m py_compile app.py
+      - name: Run ingestion and analytics
         env:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: python -m src.macro_dashboard.pipeline
