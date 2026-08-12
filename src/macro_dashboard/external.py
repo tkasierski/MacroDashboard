@@ -10,6 +10,7 @@ import requests
 ADS_URL = "https://www.philadelphiafed.org/-/media/FRBP/Assets/Surveys-And-Data/ads/ADS_Index_Most_Current_Vintage.xlsx"
 PALI_PAGE_URL = "https://www.fanniemae.com/data-and-insights/surveys-indices/weekly-mortgage-applications-data"
 TSA_PAGE_URL = "https://www.tsa.gov/travel/passenger-volumes"
+INDEED_US_URL = "https://raw.githubusercontent.com/hiring-lab/job_postings_tracker/master/US/aggregate_job_postings_US.csv"
 
 
 def _coerce_dates(series: pd.Series) -> pd.Series:
@@ -110,4 +111,24 @@ def fetch_tsa() -> pd.DataFrame:
     frame = pd.concat(frames, ignore_index=True)
     frame = frame.drop_duplicates(subset="date", keep="first").sort_values("date")
     frame["series_id"] = "TSA"
+    return frame[["date", "series_id", "value"]]
+
+
+def fetch_indeed_job_postings() -> pd.DataFrame:
+    response = requests.get(INDEED_US_URL, timeout=30)
+    response.raise_for_status()
+    frame = pd.read_csv(BytesIO(response.content))
+    required = {"date", "indeed_job_postings_index_SA", "variable"}
+    if not required.issubset(frame.columns):
+        raise ValueError("Indeed CSV schema changed")
+
+    frame = frame[frame["variable"].astype(str).str.lower().eq("total")].copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame["value"] = pd.to_numeric(frame["indeed_job_postings_index_SA"], errors="coerce")
+    frame = frame.dropna(subset=["date", "value"])
+    if len(frame) < 100:
+        raise ValueError("Indeed US job postings series is unexpectedly short")
+
+    frame = frame.drop_duplicates(subset="date", keep="last").sort_values("date")
+    frame["series_id"] = "INDEED_JOB_POSTINGS"
     return frame[["date", "series_id", "value"]]
