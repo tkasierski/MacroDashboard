@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 from io import BytesIO
+import re
+from urllib.parse import urljoin
 
 import pandas as pd
 import requests
 
 ADS_URL = "https://www.philadelphiafed.org/-/media/FRBP/Assets/Surveys-And-Data/ads/ADS_Index_Most_Current_Vintage.xlsx"
+PALI_PAGE_URL = "https://www.fanniemae.com/data-and-insights/surveys-indices/weekly-mortgage-applications-data"
 
 
 def _coerce_dates(series: pd.Series) -> pd.Series:
@@ -46,3 +49,45 @@ def fetch_ads() -> pd.DataFrame:
     frame = best.drop_duplicates(subset="date", keep="last").sort_values("date")
     frame["series_id"] = "ADS"
     return frame[["date", "series_id", "value"]]
+
+
+def _latest_pali_workbook_url() -> str:
+    response = requests.get(PALI_PAGE_URL, timeout=30)
+    response.raise_for_status()
+    matches = re.findall(r'href=["\']([^"\']*fannie-mae-pali-rali-weekly-[^"\']+\.xlsx)["\']', response.text, flags=re.I)
+    if not matches:
+        raise ValueError("Could not find latest PALI/RALI workbook link")
+    return urljoin(PALI_PAGE_URL, matches[0])
+
+
+def fetch_pali() -> pd.DataFrame:
+    workbook_url = _latest_pali_workbook_url()
+    response = requests.get(workbook_url, timeout=30)
+    response.raise_for_status()
+    workbook = pd.ExcelFile(BytesIO(response.content))
+
+    for sheet in workbook.sheet_names:
+        for header_row in range(0, 12):
+            frame = pd.read_excel(workbook, sheet_name=sheet, header=header_row)
+            columns = {str(col).strip().lower(): col for col in frame.columns}
+            date_col = next((orig for norm, orig in columns.items() if "date" in norm or "week" in norm), None)
+            pali_col = next(
+                (
+                    orig
+                    for norm, orig in columns.items()
+                    if "pali" in norm and ("dollar" in norm or "$" in norm or "volume" in norm)
+                ),
+                None,
+            )
+            if date_col is None or pali_col is None:
+                continue
+
+            dates = pd.to_datetime(frame[date_col], errors="coerce")
+            values = pd.to_numeric(frame[pali_col], errors="coerce")
+            candidate = pd.DataFrame({"date": dates, "value": values}).dropna()
+            if len(candidate) >= 100:
+                candidate = candidate.drop_duplicates(subset="date", keep="last").sort_values("date")
+                candidate["series_id"] = "PALI"
+                return candidate[["date", "series_id", "value"]]
+
+    raise ValueError("Could not identify PALI dollar-volume date/value columns in Fannie Mae workbook")
