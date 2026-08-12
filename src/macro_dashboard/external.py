@@ -9,6 +9,7 @@ import requests
 
 ADS_URL = "https://www.philadelphiafed.org/-/media/FRBP/Assets/Surveys-And-Data/ads/ADS_Index_Most_Current_Vintage.xlsx"
 PALI_PAGE_URL = "https://www.fanniemae.com/data-and-insights/surveys-indices/weekly-mortgage-applications-data"
+TSA_PAGE_URL = "https://www.tsa.gov/travel/passenger-volumes"
 
 
 def _coerce_dates(series: pd.Series) -> pd.Series:
@@ -71,17 +72,9 @@ def fetch_pali() -> pd.DataFrame:
             frame = pd.read_excel(workbook, sheet_name=sheet, header=header_row)
             columns = {str(col).strip().lower(): col for col in frame.columns}
             date_col = next((orig for norm, orig in columns.items() if "date" in norm or "week" in norm), None)
-            pali_col = next(
-                (
-                    orig
-                    for norm, orig in columns.items()
-                    if "pali" in norm and ("dollar" in norm or "$" in norm or "volume" in norm)
-                ),
-                None,
-            )
+            pali_col = next((orig for norm, orig in columns.items() if "pali" in norm and ("dollar" in norm or "$" in norm or "volume" in norm)), None)
             if date_col is None or pali_col is None:
                 continue
-
             dates = pd.to_datetime(frame[date_col], errors="coerce")
             values = pd.to_numeric(frame[pali_col], errors="coerce")
             candidate = pd.DataFrame({"date": dates, "value": values}).dropna()
@@ -91,3 +84,30 @@ def fetch_pali() -> pd.DataFrame:
                 return candidate[["date", "series_id", "value"]]
 
     raise ValueError("Could not identify PALI dollar-volume date/value columns in Fannie Mae workbook")
+
+
+def fetch_tsa() -> pd.DataFrame:
+    frames: list[pd.DataFrame] = []
+    for page in range(0, 20):
+        response = requests.get(TSA_PAGE_URL, params={"page": page}, timeout=30)
+        response.raise_for_status()
+        tables = pd.read_html(response.text)
+        table = next((t for t in tables if {"Date", "Numbers"}.issubset(t.columns)), None)
+        if table is None or table.empty:
+            break
+        candidate = table[["Date", "Numbers"]].copy()
+        candidate.columns = ["date", "value"]
+        candidate["date"] = pd.to_datetime(candidate["date"], errors="coerce")
+        candidate["value"] = pd.to_numeric(candidate["value"].astype(str).str.replace(",", "", regex=False), errors="coerce")
+        candidate = candidate.dropna()
+        if candidate.empty:
+            break
+        frames.append(candidate)
+
+    if not frames:
+        raise ValueError("Could not parse TSA checkpoint passenger volumes")
+
+    frame = pd.concat(frames, ignore_index=True)
+    frame = frame.drop_duplicates(subset="date", keep="first").sort_values("date")
+    frame["series_id"] = "TSA"
+    return frame[["date", "series_id", "value"]]
