@@ -1,0 +1,16 @@
+{
+  "weekly_anchor": "W-FRI",
+  "fred": [
+    {"id": "WEI", "name": "Weekly Economic Index", "role": "benchmark", "aggregation": "last"},
+    {"id": "NFCI", "name": "Chicago Fed NFCI", "role": "core", "aggregation": "last"},
+    {"id": "ANFCI", "name": "Chicago Fed ANFCI", "role": "companion", "aggregation": "last"},
+    {"id": "ICSA", "name": "Initial Jobless Claims", "role": "core_direct", "aggregation": "last"},
+    {"id": "IURSA", "name": "Insured Unemployment Rate", "role": "core_direct", "aggregation": "last"},
+    {"id": "CCSA", "name": "Continuing Claims", "role": "display_companion", "aggregation": "last"},
+    {"id": "T10Y3M", "name": "10Y minus 3M Treasury Spread", "role": "core", "aggregation": "mean"},
+    {"id": "T10Y2Y", "name": "10Y minus 2Y Treasury Spread", "role": "challenger", "aggregation": "mean"},
+    {"id": "STLFSI4", "name": "St. Louis Financial Stress Index", "role": "challenger", "aggregation": "last"},
+    {"id": "DFII5", "name": "5-Year Real Treasury Yield", "role": "context", "aggregation": "mean"},
+    {"id": "T5YIE", "name": "5-Year Breakeven Inflation Rate", "role": "context", "aggregation": "mean"}
+  ]
+}
