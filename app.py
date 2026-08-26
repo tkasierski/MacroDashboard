@@ -104,6 +104,7 @@ def direction_hint(series_id: str, spec: dict) -> str:
         "STLFSI4": "Above zero = above-average financial stress; larger positive readings indicate increasingly unusual market strain.",
         "DFII5": "Higher real yields tighten discount rates and financing conditions, but can also accompany stronger real growth expectations.",
         "T5YIE": "Higher = more inflation compensation priced by markets; lower = less, though liquidity and risk premia also matter.",
+        "T10YIE": "Higher = more long-run inflation compensation priced by markets; compare with the 5-year breakeven to separate near-term from persistent repricing.",
         "TSA": "Higher throughput = stronger travel/services activity; sustained weakness relative to history is the negative signal.",
         "INDEED_JOB_POSTINGS": "Higher = stronger employer hiring demand; persistent declines indicate cooling labor demand.",
     }
