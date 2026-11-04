@@ -7,7 +7,7 @@ from pathlib import Path
 import pandas as pd
 
 from .analytics import build_coverage_report, build_feature_panel
-from .external import fetch_indeed_job_postings, fetch_tsa
+from .external import fetch_indeed_job_postings
 from .fred import fetch_series, to_weekly
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -47,7 +47,6 @@ def build_weekly_dataset() -> tuple[pd.DataFrame, dict[str, dict]]:
         weekly_frames.append(to_weekly(raw, anchor, spec["aggregation"]))
 
     for series_id, fetcher, aggregation in (
-        ("TSA", fetch_tsa, "mean"),
         ("INDEED_JOB_POSTINGS", fetch_indeed_job_postings, "last"),
     ):
         try:
@@ -62,7 +61,7 @@ def build_weekly_dataset() -> tuple[pd.DataFrame, dict[str, dict]]:
             LOGGER.warning("%s data unavailable (%s): %s", series_id, type(exc).__name__, exc)
 
     # Preserve unavailable series as NaN, never as zero or stale observations.
-    for series_id in ("TSA", "INDEED_JOB_POSTINGS"):
+    for series_id in ("INDEED_JOB_POSTINGS",):
         if not any(series_id in frame.columns for frame in weekly_frames):
             weekly_frames.append(pd.DataFrame({series_id: pd.Series(dtype="float64")}))
 
