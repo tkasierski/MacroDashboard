@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -12,6 +13,8 @@ from .fred import fetch_series, to_weekly
 ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = ROOT / "config" / "indicators.json"
 PROCESSED_DIR = ROOT / "data" / "processed"
+LOGGER = logging.getLogger(__name__)
+
 
 
 def load_config() -> dict:
@@ -43,8 +46,25 @@ def build_weekly_dataset() -> tuple[pd.DataFrame, dict[str, dict]]:
         raw = fetch_series(spec["id"])
         weekly_frames.append(to_weekly(raw, anchor, spec["aggregation"]))
 
-    weekly_frames.append(to_weekly(fetch_tsa(), anchor, "mean"))
-    weekly_frames.append(to_weekly(fetch_indeed_job_postings(), anchor, "last"))
+    for series_id, fetcher, aggregation in (
+        ("TSA", fetch_tsa, "mean"),
+        ("INDEED_JOB_POSTINGS", fetch_indeed_job_postings, "last"),
+    ):
+        try:
+            frame = fetcher()
+            if frame.empty:
+                raise ValueError("Source returned no observations")
+            weekly_frames.append(to_weekly(frame, anchor, aggregation))
+        except (ValueError, KeyError, IndexError, OSError, pd.errors.ParserError) as exc:
+            LOGGER.warning("%s data unavailable: %s", series_id, exc)
+        except Exception as exc:
+            # External providers can reject or change their endpoints independently.
+            LOGGER.warning("%s data unavailable (%s): %s", series_id, type(exc).__name__, exc)
+
+    # Preserve unavailable series as NaN, never as zero or stale observations.
+    for series_id in ("TSA", "INDEED_JOB_POSTINGS"):
+        if not any(series_id in frame.columns for frame in weekly_frames):
+            weekly_frames.append(pd.DataFrame({series_id: pd.Series(dtype="float64")}))
 
     weekly = pd.concat(weekly_frames, axis=1).sort_index()
     today = pd.Timestamp.now(tz="UTC").tz_localize(None).normalize()

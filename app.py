@@ -136,7 +136,7 @@ def metric_card(
     change_3m = row.get("change_3m")
     with st.container(border=True):
         st.metric(name, format_value(value, spec), f"3m {format_change(change_3m, spec)}")
-        st.caption(f"{state_label(row, pct)} · {pct:.0f}th {percentile_label(horizon).lower()}")
+        st.caption(f"{state_label(row, pct)} · {pct:.0f}th {percentile_label(horizon).lower()} · As of {pd.Timestamp(row['week_ending']).date()}")
         st.write(spec.get("description", ""))
         st.caption(direction_hint(series_id, spec))
 
@@ -145,7 +145,7 @@ try:
     config_version = CONFIG_PATH.stat().st_mtime_ns
     weekly, features, coverage, specs = load_data(config_version)
 except Exception as exc:
-    st.error("Data refresh failed. Confirm FRED_API_KEY is available to the Streamlit process.")
+    st.error(f"Data refresh failed: {type(exc).__name__}: {exc}")
     st.exception(exc)
     st.stop()
 
@@ -154,7 +154,10 @@ st.caption("U.S. macro situational awareness · weekly normalization · source-f
 
 latest_week = weekly.dropna(how="all").index.max()
 active_series = int(weekly.notna().any().sum())
-st.write(f"Latest completed weekly anchor: **{latest_week.date()}** · Active series: **{active_series}**")
+st.write(f"Latest available weekly anchor: **{latest_week.date()}** · Active series: **{active_series}**")
+missing_sources = [specs[sid].get("name", sid) for sid in ("TSA", "INDEED_JOB_POSTINGS") if sid in weekly and weekly[sid].notna().sum() == 0]
+if missing_sources:
+    st.warning("Some external indicators could not be refreshed: " + ", ".join(missing_sources) + ". Other indicators remain available; missing values are not zeros.")
 
 with st.sidebar:
     st.header("View")
@@ -239,6 +242,9 @@ with st.expander("Data coverage and source diagnostics", expanded=False):
     coverage_view = coverage.copy()
     coverage_view["first_observation"] = pd.to_datetime(coverage_view["first_observation"]).dt.date
     coverage_view["latest_observation"] = pd.to_datetime(coverage_view["latest_observation"]).dt.date
+    unavailable = coverage_view.loc[coverage_view["observations"].eq(0), "name"].tolist()
+    if unavailable:
+        st.warning("Unavailable data sources: " + ", ".join(unavailable) + ". Missing values are excluded, not treated as zero.")
     st.dataframe(
         coverage_view[
             [
