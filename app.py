@@ -105,7 +105,7 @@ def direction_hint(series_id: str, spec: dict) -> str:
         "DFII5": "Higher real yields tighten discount rates and financing conditions, but can also accompany stronger real growth expectations.",
         "T5YIE": "Higher = more inflation compensation priced by markets; lower = less, though liquidity and risk premia also matter.",
         "T10YIE": "Higher = more long-run inflation compensation priced by markets; compare with the 5-year breakeven to separate near-term from persistent repricing.",
-        "TSA": "Higher throughput = stronger travel/services activity; sustained weakness relative to history is the negative signal.",
+        "RCMFLBBALDPDPCT90P": "Higher = more large-bank first-lien mortgage balances seriously delinquent or in foreclosure; quarterly and not a pure foreclosure rate.",
         "INDEED_JOB_POSTINGS": "Higher = stronger employer hiring demand; persistent declines indicate cooling labor demand.",
     }
     if series_id in hints:
@@ -155,7 +155,7 @@ st.caption("U.S. macro situational awareness · weekly normalization · source-f
 latest_week = weekly.dropna(how="all").index.max()
 active_series = int(weekly.notna().any().sum())
 st.write(f"Latest available weekly anchor: **{latest_week.date()}** · Active series: **{active_series}**")
-missing_sources = [specs[sid].get("name", sid) for sid in ("TSA", "INDEED_JOB_POSTINGS") if sid in weekly and weekly[sid].notna().sum() == 0]
+missing_sources = [specs[sid].get("name", sid) for sid in ("INDEED_JOB_POSTINGS",) if sid in weekly and weekly[sid].notna().sum() == 0]
 if missing_sources:
     st.warning("Some external indicators could not be refreshed: " + ", ".join(missing_sources) + ". Other indicators remain available; missing values are not zeros.")
 
@@ -171,7 +171,7 @@ with st.sidebar:
         st.cache_data.clear()
         st.rerun()
 
-headline = ["WEI", "NFCI", "ICSA", "IURSA", "T10Y3M", "TSA", "INDEED_JOB_POSTINGS"]
+headline = ["WEI", "NFCI", "ICSA", "IURSA", "T10Y3M", "RCMFLBBALDPDPCT90P", "INDEED_JOB_POSTINGS"]
 headline = [sid for sid in headline if specs.get(sid, {}).get("role") in selected_roles]
 
 st.subheader("Current snapshot")
